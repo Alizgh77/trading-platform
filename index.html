@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Back To Future</title>
+    <link rel="stylesheet" href="styles/main.css" />
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="top-bar">
+        <div class="form-inline">
+            <strong>Timeframe:</strong>
+            <button onclick="setTimeframe('1')">1m</button>
+            <button onclick="setTimeframe('5')">5m</button>
+            <button onclick="setTimeframe('15')">15m</button>
+        </div>
+
+        <strong>TRADING CHART</strong>
+
+        <div class="form-inline">
+            <strong>Indicators:</strong>
+            <select id="indicatorSelect">
+                <option value="">Select</option>
+                <option value="ema">EMA</option>
+            </select>
+            <button onclick="addIndicator()">Add</button>
+            <button onclick="removeIndicator()">Remove</button>
+        </div>
+    </div>
+
+    <!-- Trade Controls -->
+    <div class="top-bar">
+        <div class="form-inline">
+            <label>TP%</label><input type="number" id="tpInput" placeholder="opt." />
+            <label>SL%</label><input type="number" id="slInput" required />
+            <label>Risk:</label><input type="number" id="riskInput" required />
+            <label>Type:</label>
+            <select id="riskType">
+                <option value="percent">%</option>
+                <option value="dollar">$</option>
+                <option value="lot">Lot</option>
+            </select>
+        </div>
+        <div class="form-inline">
+            <button onclick="openPosition('buy')" style="background-color:#2196f3; color:white;">Buy</button>
+            <button onclick="openPosition('sell')" style="background-color:#ff1900; color:white;">Sell</button>
+            <button onclick="closePosition()">Close</button>
+        </div>
+    </div>
+
+    <!-- Chart -->
+    <div id="chart" style="height: 500px;"></div>
+
+    <!-- Controls -->
+    <div class="center-controls">
+        <button onclick="prevCandle()">←</button>
+        <button onclick="play()">▶</button>
+        <button onclick="pause()">⏸</button>
+        <button onclick="nextCandle()">→</button>
+    </div>
+
+    <!-- Metrics -->
+    <div class="metrics">
+        Balance: $<span id="balance">10000</span> |
+        Equity: $<span id="equity">10000</span> |
+        Floating: $<span id="floating">0.00</span>
+    </div>
+
+    <script type="module" src="scripts/main.js"></script>
+</body>
+
+</html>

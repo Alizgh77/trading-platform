@@ -57,10 +57,12 @@
     <!-- Controls -->
     <div class="center-controls">
         <button onclick="prevCandle()">←</button>
-        <button onclick="play()">▶</button>
-        <button onclick="pause()">⏸</button>
+        <button id="playPauseBtn" onclick="togglePlayPause()">▶</button>
+        <button id="speedBtn" onclick="cycleSpeed()">×1</button>
         <button onclick="nextCandle()">→</button>
     </div>
+
+
 
     <!-- Metrics -->
     <div class="metrics">

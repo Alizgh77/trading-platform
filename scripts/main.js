@@ -8,6 +8,9 @@ let syncedTime = null;
 let allData = [];
 let visibleStartIndex = 0;
 let isFirstLoad = true;
+let playSpeed = 1;
+const speedOptions = [1, 2, 4, 10];
+
 
 
 const pipSize = 0.01;
@@ -136,9 +139,24 @@ function play() {
         intervalId = setInterval(() => {
             nextCandle();
             if (currentIndex >= fullData.length - 1) pause();
-        }, 500);
+        }, 500 / playSpeed);
     }
 }
+
+function cycleSpeed() {
+    const index = speedOptions.indexOf(playSpeed);
+    const nextIndex = (index + 1) % speedOptions.length;
+    playSpeed = speedOptions[nextIndex];
+
+    document.getElementById("speedBtn").textContent = `×${playSpeed}`;
+
+    if (intervalId) {
+        // اگر در حالت پخش هستیم، پخش رو با سرعت جدید ری‌استارت کن
+        pause();
+        play();
+    }
+}
+
 
 function pause() {
     clearInterval(intervalId);
@@ -370,6 +388,17 @@ function redrawPositionLines() {
     positionLines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
 }
 
+function togglePlayPause() {
+    const btn = document.getElementById("playPauseBtn");
+    if (intervalId) {
+        pause();
+        btn.textContent = "▶";
+    } else {
+        play();
+        btn.textContent = "⏸";
+    }
+}
+
 
 window.onload = async function () {
     await setTimeframe(currentTf);
@@ -384,3 +413,6 @@ window.openPosition = openPosition;
 window.closePosition = closePosition;
 window.addIndicator = addIndicator;
 window.removeIndicator = removeIndicator;
+window.togglePlayPause = togglePlayPause;
+window.cycleSpeed = cycleSpeed;
+

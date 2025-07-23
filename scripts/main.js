@@ -1,7 +1,9 @@
 let chart, candleSeries, emaSeries;
 let fullData = [], currentIndex = 0, intervalId = null;
 let currentTf = '1', emaEnabled = false;
-let position = null;
+let positions = []; // ← به جای position
+let positionLinesMap = new Map(); // ← برای خطوط هر پوزیشن
+//let position = null;
 let positionLines = { entry: null, tp: null, sl: null };
 let balance = 10000, equity = 10000;
 let syncedTime = null;
@@ -10,6 +12,8 @@ let visibleStartIndex = 0;
 let isFirstLoad = true;
 let playSpeed = 1;
 const speedOptions = [1, 2, 4, 10];
+let userScrolled = false;
+let closedPositions = [];
 
 
 
@@ -56,6 +60,16 @@ function renderChart() {
 
     redrawPositionLines();
 
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        const logicalRange = chart.timeScale().getVisibleLogicalRange();
+        const dataLength = fullData.length;
+        if (!logicalRange) return;
+
+        const isAtEnd = logicalRange.to >= dataLength - 2;
+        userScrolled = !isAtEnd;
+    });
+
+
 }
 
 function updateIndicators(data) {
@@ -101,13 +115,16 @@ function updateChart() {
     if (currentCandle) updateEquity(currentCandle);
 
     // ✅ اضافه کردن فضای آینده در محور زمان
-    try {
-        chart.timeScale().applyOptions({
-            rightOffset: 0 // فضای خالی از کندل‌ها در سمت راست
-        });
-    } catch (err) {
-        console.warn("applyOptions for rightOffset failed:", err);
+    if (!userScrolled) {
+        setTimeout(() => {
+            try {
+                chart.timeScale().scrollToPosition(Infinity, false);
+            } catch (e) {
+                console.warn('scrollToPosition failed:', e);
+            }
+        }, 0);
     }
+
 }
 
 
@@ -164,8 +181,6 @@ function pause() {
 }
 
 function openPosition(type) {
-    if (position) return alert("You already have an open position!");
-
     if (balance <= 0) {
         alert("Your balance is zero or negative. You cannot open a new position.");
         return;
@@ -209,91 +224,139 @@ function openPosition(type) {
 
     const commissionEntry = commissionPerLot * (size / contractSize);
     balance -= commissionEntry;
+    const commissionExit = commissionEntry; // چون مشابهه
+    const totalCommission = commissionEntry + commissionExit;
 
-    position = {
+    const position = {
+        id: Date.now() + Math.random(), // Unique ID
         type, entryPrice: entry, tp, sl, size,
-        risk: riskAmount, commission: commissionEntry,
+        risk: riskAmount, commission: totalCommission,
         entryTime: nextCandle.time, closed: false
     };
 
-    // 📌 رسم خطوط روی قیمت واقعی
-    positionLines.entry = candleSeries.createPriceLine({ price: entry, color: 'gray', lineWidth: 1, title: 'Entry' });
-    if (tp) positionLines.tp = candleSeries.createPriceLine({ price: tp, color: 'green', lineWidth: 1, title: 'TP' });
-    positionLines.sl = candleSeries.createPriceLine({ price: sl, color: 'red', lineWidth: 1, title: 'SL' });
-
-    // 🎯 نمایش خطوط Ask و Bid
-    positionLines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
-    positionLines.bid = candleSeries.createPriceLine({ price: bid, color: 'blue', lineWidth: 1, title: 'Bid' });
-
+    positions.push(position);
+    drawPositionLines(position);
     updateEquity(nextCandle);
+    renderPositionsTable();
 }
 
 
 function checkPosition(candle) {
-    if (!position || position.closed) return;
-    const hitTP = position.tp && (
-        position.type === 'buy' ? candle.high >= position.tp : candle.low <= position.tp
-    );
-    const hitSL = position.type === 'buy'
-        ? candle.low <= position.sl
-        : candle.high >= position.sl;
+    for (let position of positions) {
+        if (position.closed) continue;
 
-    if (hitTP || hitSL) {
-        position.closed = true;
-        const exit = hitTP ? position.tp : position.sl;
-        let pnl = (position.type === 'buy')
-            ? (exit - position.entryPrice) * position.size
-            : (position.entryPrice - exit) * position.size;
+        const hitTP = position.tp && (
+            position.type === 'buy' ? candle.high >= position.tp : candle.low <= position.tp
+        );
+        const hitSL = position.type === 'buy'
+            ? candle.low <= position.sl
+            : candle.high >= position.sl;
 
-        const commissionExit = commissionPerLot * (position.size / contractSize);
-        pnl -= commissionExit;
+        if (hitTP || hitSL) {
+            position.closed = true;
+            const exit = hitTP ? position.tp : position.sl;
+            let pnl = (position.type === 'buy')
+                ? (exit - position.entryPrice) * position.size
+                : (position.entryPrice - exit) * position.size;
 
-        balance += pnl;
-        equity = balance;
-        updateMetrics();
-        clearPosition();
-    } else {
-        updateEquity(candle);
+            const commissionExit = commissionPerLot * (position.size / contractSize);
+            pnl -= commissionExit;
+
+            balance += pnl;
+            equity = balance;
+            removePositionLines(position);
+            position.exitPrice = exit;
+            position.pnl = pnl;
+            closedPositions.push({
+                ...position,
+                pnl,
+                commission: position.commission + commissionExit,
+                exitPrice: exit,
+            });
+
+        }
     }
+
+    updateEquity(candle);
+    renderPositionsTable();
+    renderStatementTable();
 }
 
+
 function updateEquity(candle) {
-    if (position && !position.closed) {
-        const rawDiff = position.type === 'buy'
+    let floatingTotal = 0;
+
+    for (let position of positions) {
+        if (position.closed) continue;
+
+        const diff = position.type === 'buy'
             ? candle.close - position.entryPrice
             : position.entryPrice - candle.close;
 
-        const floating = rawDiff * position.size;
+        const floating = diff * position.size;
         const commissionExit = commissionPerLot * (position.size / contractSize);
-        const totalFloating = floating - commissionExit;
+        const netFloating = floating - commissionExit;
 
-        equity = balance + totalFloating;
-        document.getElementById('floating').textContent = totalFloating.toFixed(2);
-    } else {
-        equity = balance;
-        document.getElementById('floating').textContent = "0.00";
+        position.floating = netFloating; // 👈 ذخیره در خود پوزیشن
+        floatingTotal += netFloating;
     }
+
+    equity = balance + floatingTotal;
+    document.getElementById('floating').textContent = floatingTotal.toFixed(2);
     updateMetrics();
 }
 
-function closePosition() {
-    if (!position) return;
+
+function drawPositionLines(position) {
+    const lines = {};
+
+    lines.entry = candleSeries.createPriceLine({ price: position.entryPrice, color: 'gray', lineWidth: 1, title: 'Entry' });
+    if (position.tp)
+        lines.tp = candleSeries.createPriceLine({ price: position.tp, color: 'green', lineWidth: 1, title: 'TP' });
+    lines.sl = candleSeries.createPriceLine({ price: position.sl, color: 'red', lineWidth: 1, title: 'SL' });
+
+    const bid = position.type === 'buy' ? position.entryPrice - spread : position.entryPrice;
+    const ask = position.type === 'buy' ? position.entryPrice : position.entryPrice + spread;
+    lines.bid = candleSeries.createPriceLine({ price: bid, color: 'blue', lineWidth: 1, title: 'Bid' });
+    lines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
+
+    positionLinesMap.set(position.id, lines);
+}
+
+function removePositionLines(position) {
+    const lines = positionLinesMap.get(position.id);
+    if (lines) {
+        Object.values(lines).forEach(line => candleSeries.removePriceLine(line));
+        positionLinesMap.delete(position.id);
+    }
+}
+
+function closePosition(id) {
+    const posIndex = positions.findIndex(p => p.id === id);
+    if (posIndex === -1) return;
+
+    const pos = positions[posIndex];
+    if (pos.closed) return;
+
     const candle = fullData[currentIndex];
     const exit = candle.close;
 
-    let pnl = (position.type === 'buy')
-        ? (exit - position.entryPrice) * position.size
-        : (position.entryPrice - exit) * position.size;
+    let pnl = (pos.type === 'buy')
+        ? (exit - pos.entryPrice) * pos.size
+        : (pos.entryPrice - exit) * pos.size;
 
-    const commissionExit = commissionPerLot * (position.size / contractSize);
+    const commissionExit = commissionPerLot * (pos.size / contractSize);
     pnl -= commissionExit;
 
     balance += pnl;
     equity = balance;
-    position.closed = true;
+    pos.closed = true;
+
+    clearPositionLines(id);
     updateMetrics();
-    clearPosition();
+    updatePositionTable();
 }
+
 
 function clearPosition() {
     ['entry', 'tp', 'sl', 'bid', 'ask'].forEach(k => {
@@ -301,6 +364,109 @@ function clearPosition() {
     });
     position = null;
     positionLines = { entry: null, tp: null, sl: null, bid: null, ask: null };
+}
+
+function renderPositionsTable() {
+    const tbody = document.getElementById('positionTable');
+    tbody.innerHTML = '';
+
+    for (let pos of positions) {
+        if (pos.closed) continue;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${pos.type.toUpperCase()}</td>
+            <td>${pos.entryPrice.toFixed(2)}</td>
+            <td>${pos.size.toFixed(2)}</td>
+            <td>${pos.tp ? pos.tp.toFixed(2) : '-'}</td>
+            <td>${pos.sl.toFixed(2)}</td>
+            <td>${pos.floating !== undefined ? pos.floating.toFixed(2) : '--'}</td>
+            <td><button onclick="manualClose('${pos.id}')">Close</button></td>
+        `;
+        tbody.appendChild(row);
+    }
+}
+
+
+function formatTimestamp(ts) {
+    const d = new Date(ts * 1000); // تبدیل از یونیکس (ثانیه) به تاریخ JS
+    const y = d.getFullYear();
+    const m = (d.getMonth() + 1).toString().padStart(2, '0');
+    const day = d.getDate().toString().padStart(2, '0');
+    const h = d.getHours().toString().padStart(2, '0');
+    const min = d.getMinutes().toString().padStart(2, '0');
+    return `${y}-${m}-${day} ${h}:${min}`;
+}
+
+
+function renderStatementTable() {
+    const tbody = document.getElementById('statementTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    for (let p of closedPositions) {
+        if (!p || !p.type) continue;
+
+        const result = p.pnl >= 0 ? 'Profit' : 'Loss';
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${p.type.toUpperCase()}</td>
+            <td>${p.entryPrice.toFixed(2)}</td>
+            <td>${p.exitPrice ? p.exitPrice.toFixed(2) : '--'}</td>
+            <td>${p.size.toFixed(2)}</td>
+            <td>${p.tp ? p.tp.toFixed(2) : '-'}</td>
+            <td>${p.sl.toFixed(2)}</td>
+            <td>${p.pnl?.toFixed(2) || '--'}</td>
+            <td>${p.commission.toFixed(2)}</td>
+            <td>${result}</td>
+        `;
+        tbody.appendChild(row);
+    }
+}
+
+
+
+
+function manualClose(id) {
+    console.log("Trying to close ID:", id);
+    const pos = positions.find(p => p.id == id && !p.closed);
+    if (!pos) {
+        console.warn("Position not found or already closed for ID:", id);
+        return;
+    }
+
+    const candle = fullData[currentIndex];
+    const exit = candle.close;
+
+    let pnl = (pos.type === 'buy')
+        ? (exit - pos.entryPrice) * pos.size
+        : (pos.entryPrice - exit) * pos.size;
+
+    const commissionExit = commissionPerLot * (pos.size / contractSize);
+    pnl -= commissionExit;
+
+    balance += pnl;
+    equity = balance;
+    pos.closed = true;
+
+    removePositionLines(pos);
+    updateMetrics();
+    renderPositionsTable();
+
+    console.log("Manual close completed for ID:", id);
+    pos.exitPrice = exit;
+    pos.pnl = pnl;
+
+    closedPositions.push({
+        ...pos,
+        pnl,
+        commission: pos.commission + commissionExit,
+        exitPrice: exit,
+    });
+
+    renderStatementTable();
+
 }
 
 
@@ -374,18 +540,10 @@ async function setTimeframe(tf) {
 
 
 function redrawPositionLines() {
-    if (!position || position.closed) return;
-
-    positionLines.entry = candleSeries.createPriceLine({ price: position.entryPrice, color: 'gray', lineWidth: 1, title: 'Entry' });
-    if (position.tp)
-        positionLines.tp = candleSeries.createPriceLine({ price: position.tp, color: 'green', lineWidth: 1, title: 'TP' });
-    positionLines.sl = candleSeries.createPriceLine({ price: position.sl, color: 'red', lineWidth: 1, title: 'SL' });
-
-    const bid = position.type === 'buy' ? position.entryPrice - spread : position.entryPrice;
-    const ask = position.type === 'buy' ? position.entryPrice : position.entryPrice + spread;
-
-    positionLines.bid = candleSeries.createPriceLine({ price: bid, color: 'blue', lineWidth: 1, title: 'Bid' });
-    positionLines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
+    positions.forEach(pos => {
+        if (pos.closed) return;
+        drawPositionLines(pos);
+    });
 }
 
 function togglePlayPause() {
@@ -397,6 +555,17 @@ function togglePlayPause() {
         play();
         btn.textContent = "⏸";
     }
+}
+
+function showTab(tabId) {
+    const tabs = document.querySelectorAll('.tab-content');
+    const buttons = document.querySelectorAll('.tab-btn');
+
+    tabs.forEach(t => t.classList.remove('active'));
+    buttons.forEach(b => b.classList.remove('active'));
+
+    document.getElementById(tabId).classList.add('active');
+    event.target.classList.add('active');
 }
 
 
@@ -415,4 +584,14 @@ window.addIndicator = addIndicator;
 window.removeIndicator = removeIndicator;
 window.togglePlayPause = togglePlayPause;
 window.cycleSpeed = cycleSpeed;
+window.manualClose = manualClose;
+window.showTab = function (tabName) {
+    const tabs = ['positions', 'statement'];
+    tabs.forEach(tab => {
+        document.getElementById(tab).style.display = (tab === tabName) ? 'block' : 'none';
+        const btn = document.querySelector(`.tab-btn[onclick="showTab('${tab}')"]`);
+        if (btn) btn.classList.toggle('active', tab === tabName);
+    });
+}
+
 

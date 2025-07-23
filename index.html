@@ -13,9 +13,9 @@
     <div class="top-bar">
         <div class="form-inline">
             <strong>Timeframe:</strong>
-            <button onclick="setTimeframe('1')">1m</button>
-            <button onclick="setTimeframe('5')">5m</button>
-            <button onclick="setTimeframe('15')">15m</button>
+            <button onclick="setTimeframe('1')">Lower</button>
+            <button onclick="setTimeframe('5')">Middle</button>
+            <button onclick="setTimeframe('15')">Higher</button>
         </div>
 
         <strong>TRADING CHART</strong>
@@ -47,7 +47,6 @@
         <div class="form-inline">
             <button onclick="openPosition('buy')" style="background-color:#2196f3; color:white;">Buy</button>
             <button onclick="openPosition('sell')" style="background-color:#ff1900; color:white;">Sell</button>
-            <button onclick="closePosition()">Close</button>
         </div>
     </div>
 
@@ -56,19 +55,60 @@
 
     <!-- Controls -->
     <div class="center-controls">
-        <button onclick="prevCandle()">←</button>
         <button id="playPauseBtn" onclick="togglePlayPause()">▶</button>
         <button id="speedBtn" onclick="cycleSpeed()">×1</button>
         <button onclick="nextCandle()">→</button>
     </div>
-
-
 
     <!-- Metrics -->
     <div class="metrics">
         Balance: $<span id="balance">10000</span> |
         Equity: $<span id="equity">10000</span> |
         Floating: $<span id="floating">0.00</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-container">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('positions')">Open Positions</button>
+            <button class="tab-btn" onclick="showTab('statement')">Trade Statement</button>
+        </div>
+
+        <div id="positions" class="tab-content active">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Entry</th>
+                        <th>Size</th>
+                        <th>TP</th>
+                        <th>SL</th>
+                        <th>Floating</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="positionTable"></tbody>
+            </table>
+        </div>
+
+        <div id="statement" class="tab-content">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>Size</th>
+                        <th>TP</th>
+                        <th>SL</th>
+                        <th>PnL</th>
+                        <th>Commission</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody id="statementTable"></tbody>
+            </table>
+        </div>
     </div>
 
     <script type="module" src="scripts/main.js"></script>

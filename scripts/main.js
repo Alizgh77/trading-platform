@@ -20,8 +20,10 @@ let closedPositions = [];
 const pipSize = 0.01;
 const contractSize = 100000;
 const spreadPips = 2;
-const spread = pipSize * spreadPips;
-const commissionPerLot = 7;
+const spread = 0;
+const commissionPerLot = 8;
+//const spread = pipSize * spreadPips;
+//const commissionPerLot = 7;
 
 function convertToTimestamp(dateStr, timeStr) {
     const [y, m, d] = dateStr.split('.').map(Number);
@@ -191,6 +193,11 @@ function openPosition(type) {
     const riskInput = parseFloat(document.getElementById("riskInput").value);
     const riskType = document.getElementById("riskType").value;
 
+    if (riskInput < 0 || slInput < 0 || tpInput < 0) {
+        alert("Risk, SL, and TP must be non-negative values.");
+        return;
+    }
+
     if (!riskInput || !slInput) return alert("Risk and SL % are required!");
 
     const nextCandle = fullData[currentIndex];
@@ -315,10 +322,10 @@ function drawPositionLines(position) {
         lines.tp = candleSeries.createPriceLine({ price: position.tp, color: 'green', lineWidth: 1, title: 'TP' });
     lines.sl = candleSeries.createPriceLine({ price: position.sl, color: 'red', lineWidth: 1, title: 'SL' });
 
-    const bid = position.type === 'buy' ? position.entryPrice - spread : position.entryPrice;
-    const ask = position.type === 'buy' ? position.entryPrice : position.entryPrice + spread;
-    lines.bid = candleSeries.createPriceLine({ price: bid, color: 'blue', lineWidth: 1, title: 'Bid' });
-    lines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
+    //const bid = position.type === 'buy' ? position.entryPrice - spread : position.entryPrice;
+    //const ask = position.type === 'buy' ? position.entryPrice : position.entryPrice + spread;
+    //lines.bid = candleSeries.createPriceLine({ price: bid, color: 'blue', lineWidth: 1, title: 'Bid' });
+    //lines.ask = candleSeries.createPriceLine({ price: ask, color: 'purple', lineWidth: 1, title: 'Ask' });
 
     positionLinesMap.set(position.id, lines);
 }
@@ -431,6 +438,12 @@ function renderStatementTable() {
 function manualClose(id) {
     console.log("Trying to close ID:", id);
     const pos = positions.find(p => p.id == id && !p.closed);
+    // ⛔ Prevent closing on the same candle
+    if (syncedTime === pos.entryTime) {
+        alert("You must wait at least one candle after entry to close the position.");
+        return;
+    }
+
     if (!pos) {
         console.warn("Position not found or already closed for ID:", id);
         return;
@@ -571,6 +584,30 @@ function showTab(tabId) {
 
 window.onload = async function () {
     await setTimeframe(currentTf);
+    document.getElementById("riskType").dispatchEvent(new Event("change"));
+    document.getElementById("riskType").addEventListener("change", function () {
+        const type = this.value;
+        const label = document.querySelector("label[for='riskInput']") || document.querySelector("label:has(+ #riskInput)");
+        const riskInput = document.getElementById("riskInput");
+
+        if (type === "percent") {
+            label.textContent = "Risk:";
+            riskInput.value = "";
+            riskInput.disabled = false;
+            riskInput.placeholder = "e.g. 2";
+        } else if (type === "dollar") {
+            label.textContent = "Amount:";
+            riskInput.value = "";
+            riskInput.disabled = false;
+            riskInput.placeholder = "e.g. 100";
+        } else if (type === "lot") {
+            label.textContent = "Size:";
+            riskInput.value = "1";
+            riskInput.disabled = true;
+            riskInput.placeholder = "1";
+        }
+    });
+
 };
 
 window.setTimeframe = setTimeframe;

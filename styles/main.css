@@ -153,3 +153,35 @@ input[type="number"] {
     background-color: #f2f2f2;
     font-weight: bold;
 }
+
+.statement-summary .group {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.statement-summary .box {
+    flex: 1 1 300px;
+    border: 1px solid #ccc;
+    padding: 10px 15px;
+    background-color: #f8f8f8;
+}
+
+.statement-summary .box h4 {
+    margin-top: 0;
+    font-size: 16px;
+    border-bottom: 1px solid #bbb;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+}
+
+.statement-summary .box div {
+    margin: 4px 0;
+    font-size: 14px;
+}
+
+.statement-summary .label {
+    font-weight: bold;
+}

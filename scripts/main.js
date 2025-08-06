@@ -14,6 +14,8 @@ let playSpeed = 1;
 const speedOptions = [1, 2, 4, 10];
 let userScrolled = false;
 let closedPositions = [];
+let balanceHistory = [];
+
 
 
 
@@ -229,6 +231,12 @@ function openPosition(type) {
         riskAmount = stopDistance * size;
     }
 
+    // 🔒 Prevent over-risking
+    if (riskAmount > balance) {
+        alert("Risk amount exceeds your balance. Reduce your risk.");
+        return;
+    }
+
     const commissionEntry = commissionPerLot * (size / contractSize);
     balance -= commissionEntry;
     const commissionExit = commissionEntry; // چون مشابهه
@@ -270,6 +278,7 @@ function checkPosition(candle) {
             pnl -= commissionExit;
 
             balance += pnl;
+            balanceHistory.push({ balance: balance });
             equity = balance;
             removePositionLines(position);
             position.exitPrice = exit;
@@ -287,6 +296,8 @@ function checkPosition(candle) {
     updateEquity(candle);
     renderPositionsTable();
     renderStatementTable();
+    renderAccountStatement();
+
 }
 
 
@@ -430,6 +441,9 @@ function renderStatementTable() {
         `;
         tbody.appendChild(row);
     }
+
+    renderAccountStatement();
+
 }
 
 
@@ -460,6 +474,7 @@ function manualClose(id) {
     pnl -= commissionExit;
 
     balance += pnl;
+    balanceHistory.push({ balance: balance });
     equity = balance;
     pos.closed = true;
 
@@ -479,6 +494,8 @@ function manualClose(id) {
     });
 
     renderStatementTable();
+    renderAccountStatement();
+
 
 }
 
@@ -508,6 +525,8 @@ function removeIndicator() {
 async function setTimeframe(tf) {
     currentTf = tf;
     allData = await loadCSV(tf);
+
+    balanceHistory = [{ balance }];
 
     const afterBuffer = 5 * 24 * 60 * 60; // 5 روز آینده
     const tfSeconds = { '1': 60, '5': 300, '15': 900 }[tf];
@@ -571,15 +590,229 @@ function togglePlayPause() {
 }
 
 function showTab(tabId) {
-    const tabs = document.querySelectorAll('.tab-content');
+    const tabIds = ['positions', 'statement', 'full-statement']; // 👈 اضافه کردن تب جدید
     const buttons = document.querySelectorAll('.tab-btn');
+    const contents = document.querySelectorAll('.tab-content');
 
-    tabs.forEach(t => t.classList.remove('active'));
-    buttons.forEach(b => b.classList.remove('active'));
+    // مخفی کردن تمام تب‌ها
+    contents.forEach(content => content.classList.remove('active'));
+    buttons.forEach(btn => btn.classList.remove('active'));
 
-    document.getElementById(tabId).classList.add('active');
-    event.target.classList.add('active');
+    // نمایش تب انتخاب‌شده
+    const selectedContent = document.getElementById(tabId);
+    if (selectedContent) selectedContent.classList.add('active');
+
+    const selectedButton = document.querySelector(`.tab-btn[onclick="showTab('${tabId}')"]`);
+    if (selectedButton) selectedButton.classList.add('active');
+
+    if (tabId === 'full-statement') {
+        renderBalanceChart();
+    }
+
 }
+
+
+function renderAccountStatement() {
+    const container = document.getElementById("accountStatementSummary");
+    if (!container) return;
+
+    const trades = closedPositions;
+    if (trades.length === 0) {
+        container.innerHTML = "<em>No trades yet.</em>";
+        return;
+    }
+
+    let grossProfit = 0, grossLoss = 0, totalPnL = 0;
+    let winCount = 0, lossCount = 0;
+    let largestProfit = -Infinity, largestLoss = Infinity;
+    let profitList = [], lossList = [];
+
+    let maxConsecWin = 0, maxConsecLoss = 0;
+    let currConsecWin = 0, currConsecLoss = 0;
+    let maxConsecWinValue = 0, maxConsecLossValue = 0;
+    let currWinValue = 0, currLossValue = 0;
+
+    let winSequences = [], lossSequences = [];
+
+    // 🔻 برای دراداون واقعی
+    let peak = balanceHistory[0].balance;
+    let maxDD = 0;
+    let maxDDAbs = 0;
+
+    for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const pnl = t.pnl;
+        totalPnL += pnl;
+
+        // 💰 سود
+        if (pnl >= 0) {
+            grossProfit += pnl;
+            profitList.push(pnl);
+            winCount++;
+
+            currConsecWin++;
+            currWinValue += pnl;
+
+            // پایان باخت قبلی
+            if (currConsecLoss > 0) {
+                lossSequences.push(currConsecLoss);
+                currConsecLoss = 0;
+                currLossValue = 0;
+            }
+
+            if (currConsecWin > maxConsecWin) {
+                maxConsecWin = currConsecWin;
+                maxConsecWinValue = currWinValue;
+            }
+
+        }
+        // 🔻 ضرر
+        else {
+            const absLoss = Math.abs(pnl);
+            grossLoss += absLoss;
+            lossList.push(absLoss);
+            lossCount++;
+
+            currConsecLoss++;
+            currLossValue += pnl;
+
+            // پایان برد قبلی
+            if (currConsecWin > 0) {
+                winSequences.push(currConsecWin);
+                currConsecWin = 0;
+                currWinValue = 0;
+            }
+
+            if (currConsecLoss > maxConsecLoss) {
+                maxConsecLoss = currConsecLoss;
+                maxConsecLossValue = currLossValue;
+            }
+        }
+
+        // بزرگ‌ترین‌ها
+        if (pnl > largestProfit) largestProfit = pnl;
+        if (pnl < largestLoss) largestLoss = pnl;
+
+        // دراداون
+        const currentBalance = balanceHistory[i + 1]?.balance ?? balance; // چون balanceHistory[0] مقدار اولیه‌ست
+        if (currentBalance > peak) {
+            peak = currentBalance;
+        } else {
+            const dd = peak - currentBalance;
+            if (dd > maxDDAbs) {
+                maxDDAbs = dd;
+                maxDD = (dd / peak) * 100;
+            }
+        }
+    }
+
+    // push sequences at end
+    if (currConsecWin > 0) winSequences.push(currConsecWin);
+    if (currConsecLoss > 0) lossSequences.push(currConsecLoss);
+
+    const totalTrades = trades.length;
+    const profitFactor = grossLoss !== 0 ? (grossProfit / grossLoss).toFixed(2) : '--';
+    const expectedPayoff = (totalPnL / totalTrades).toFixed(2);
+    const avgProfit = profitList.length ? (profitList.reduce((a, b) => a + b, 0) / profitList.length) : 0;
+    const avgLoss = lossList.length ? (lossList.reduce((a, b) => a + b, 0) / lossList.length) : 0;
+    const winRate = ((winCount / totalTrades) * 100).toFixed(2);
+    const lossRate = ((lossCount / totalTrades) * 100).toFixed(2);
+    const sharpeRatio = (totalPnL / (avgLoss || 1)).toFixed(2); // تقریبی
+    const recoveryFactor = (totalPnL / (grossLoss || 1)).toFixed(2);
+
+    // ✅ محاسبه متوسط برد و باخت متوالی
+    const avgConsecWins = winSequences.length ? (winSequences.reduce((a, b) => a + b, 0) / winSequences.length).toFixed(2) : '0';
+    const avgConsecLosses = lossSequences.length ? (lossSequences.reduce((a, b) => a + b, 0) / lossSequences.length).toFixed(2) : '0';
+
+    container.innerHTML = `
+        <div class="group">
+            <div class="box">
+                <h4>Account</h4>
+                <div><span class="label">Balance:</span> ${balance.toFixed(2)}</div>
+                <div><span class="label">Equity:</span> ${equity.toFixed(2)}</div>
+                <div><span class="label">Floating P/L:</span> 0.00</div>
+                <div><span class="label">Free Margin:</span> ${equity.toFixed(2)}</div>
+                <div><span class="label">Margin:</span> 0.00</div>
+                <div><span class="label">Margin Level:</span> 0.00%</div>
+            </div>
+
+            <div class="box">
+                <h4>Results</h4>
+                <div><span class="label">Total Net Profit:</span> ${totalPnL.toFixed(2)}</div>
+                <div><span class="label">Gross Profit:</span> ${grossProfit.toFixed(2)}</div>
+                <div><span class="label">Gross Loss:</span> -${grossLoss.toFixed(2)}</div>
+                <div><span class="label">Profit Factor:</span> ${profitFactor}</div>
+                <div><span class="label">Expected Payoff:</span> ${expectedPayoff}</div>
+                <div><span class="label">Recovery Factor:</span> ${recoveryFactor}</div>
+                <div><span class="label">Sharpe Ratio:</span> ${sharpeRatio}</div>
+            </div>
+
+            <div class="box">
+                <h4>Trade Stats</h4>
+                <div><span class="label">Total Trades:</span> ${totalTrades}</div>
+                <div><span class="label">Winning Trades:</span> ${winCount} (${winRate}%)</div>
+                <div><span class="label">Losing Trades:</span> ${lossCount} (${lossRate}%)</div>
+                <div><span class="label">Largest Profit Trade:</span> ${largestProfit.toFixed(2)}</div>
+                <div><span class="label">Largest Loss Trade:</span> ${largestLoss.toFixed(2)}</div>
+                <div><span class="label">Avg Profit:</span> ${avgProfit.toFixed(2)}</div>
+                <div><span class="label">Avg Loss:</span> -${avgLoss.toFixed(2)}</div>
+            </div>
+
+            <div class="box">
+                <h4>Drawdown & Consistency</h4>
+                <div><span class="label">Max Drawdown:</span> ${maxDDAbs.toFixed(2)} (${maxDD.toFixed(2)}%)</div>
+                <div><span class="label">Max Consecutive Wins:</span> ${maxConsecWin} (${maxConsecWinValue.toFixed(2)})</div>
+                <div><span class="label">Max Consecutive Losses:</span> ${maxConsecLoss} (${maxConsecLossValue.toFixed(2)})</div>
+                <div><span class="label">Avg Consecutive Wins:</span> ${avgConsecWins}</div>
+                <div><span class="label">Avg Consecutive Losses:</span> ${avgConsecLosses}</div>
+            </div>
+        </div>
+    `;
+}
+
+
+function renderBalanceChart() {
+    const container = document.getElementById('balanceChart');
+    container.innerHTML = '';
+
+    const chart = LightweightCharts.createChart(container, {
+        height: 250,
+        layout: {
+            background: { color: '#fff' },
+            textColor: '#000'
+        },
+        grid: {
+            vertLines: { visible: false },
+            horzLines: { visible: true, color: '#eee' }
+        },
+        timeScale: {
+            timeVisible: false,
+            borderColor: '#cccccc',
+            tickMarkFormatter: (time) => `#${time}`  // 👈 نمایش عدد ترید
+        },
+        rightPriceScale: {
+            borderColor: '#cccccc'
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal
+        }
+    });
+
+    const areaSeries = chart.addAreaSeries({
+        topColor: 'rgba(33, 150, 243, 0.4)',
+        bottomColor: 'rgba(33, 150, 243, 0.0)',
+        lineColor: 'rgba(33, 150, 243, 1)',
+        lineWidth: 2
+    });
+
+    const data = balanceHistory.map((item, index) => ({
+        time: index + 1, // 👈 شماره ترید
+        value: item.balance
+    }));
+
+    areaSeries.setData(data);
+}
+
 
 
 window.onload = async function () {
@@ -622,13 +855,7 @@ window.removeIndicator = removeIndicator;
 window.togglePlayPause = togglePlayPause;
 window.cycleSpeed = cycleSpeed;
 window.manualClose = manualClose;
-window.showTab = function (tabName) {
-    const tabs = ['positions', 'statement'];
-    tabs.forEach(tab => {
-        document.getElementById(tab).style.display = (tab === tabName) ? 'block' : 'none';
-        const btn = document.querySelector(`.tab-btn[onclick="showTab('${tab}')"]`);
-        if (btn) btn.classList.toggle('active', tab === tabName);
-    });
-}
+window.showTab = showTab;
+
 
 

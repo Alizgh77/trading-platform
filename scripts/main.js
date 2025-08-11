@@ -618,7 +618,7 @@ function renderAccountStatement() {
 
     const trades = closedPositions;
     if (trades.length === 0) {
-        container.innerHTML = "<em>No trades yet.</em>";
+        container.innerHTML = "<em>  No trades yet.</em>";
         return;
     }
 
@@ -835,8 +835,8 @@ window.onload = async function () {
             riskInput.placeholder = "e.g. 100";
         } else if (type === "lot") {
             label.textContent = "Size:";
-            riskInput.value = "1";
-            riskInput.disabled = true;
+            riskInput.value = "";
+            riskInput.disabled = false;
             riskInput.placeholder = "1";
         }
     });
